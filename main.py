@@ -1,6 +1,5 @@
 import cv2
 import pytesseract
-import matplotlib.pyplot as plt
 
 # Configure Tesseract path
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
@@ -9,8 +8,8 @@ pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tessera
 def preprocess_image(image):
     """ Preprocess the image: grayscale, blur, and edge detection. """
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    edged = cv2.Canny(blurred, 50, 200)  # Adjusted for better edge detection
+    blurred = cv2.GaussianBlur(gray, (7, 7), 0)  # Adjusted kernel size
+    edged = cv2.Canny(blurred, 30, 150)  # Adjusted thresholds
     return edged
 
 
@@ -22,8 +21,8 @@ def find_license_plate_contour(edged):
     for contour in contours:
         x, y, w, h = cv2.boundingRect(contour)
         aspect_ratio = w / float(h)
-        area = cv2.contourArea(contour)
-        if 2 < aspect_ratio < 5 and area > max_area:  # Filter by aspect ratio and size
+        area = cv2.contourArea(contour)  # Debugging
+        if 2 < aspect_ratio < 5 and area > 1000:  # Adjusted filters
             plate_contour = contour
             max_area = area
     return plate_contour
@@ -38,40 +37,61 @@ def extract_license_plate(image, contour):
 
 def perform_ocr(license_plate):
     """ Perform OCR on the license plate image. """
-    # Convert to grayscale and threshold
     gray_plate = cv2.cvtColor(license_plate, cv2.COLOR_BGR2GRAY)
     _, binary_plate = cv2.threshold(gray_plate, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-    # Use Tesseract to extract the text
-    text = pytesseract.image_to_string(binary_plate, config='--psm 8')
+    text = pytesseract.image_to_string(binary_plate, config='--psm 8')  # Try --psm 7 or --psm 11
     return text.strip()
 
 
 def main():
-    # Load the uploaded image
-    image_path = 'image/License-plate-india-header-1920x730.jpg'
-    image = cv2.imread(image_path)
+    # Initialize video capture (0 for webcam, or provide a video file path)
+    cap = cv2.VideoCapture(0)  # Use 0 for default webcam, or replace with a video file path
 
-    # Preprocess the image
-    edged_image = preprocess_image(image)
+    if not cap.isOpened():
+        print("Error: Could not open video source.")
+        return
 
-    # Find the license plate contour
-    plate_contour = find_license_plate_contour(edged_image)
+    while True:
+        # Capture frame-by-frame
+        ret, frame = cap.read()
+        if not ret:
+            print("Error: Failed to capture frame.")
+            break
 
-    if plate_contour is not None:
-        # Extract the license plate from the image
-        license_plate = extract_license_plate(image, plate_contour)
+        # Preprocess the frame
+        edged_image = preprocess_image(frame)
 
-        # Perform OCR to read the license plate text
-        plate_text = perform_ocr(license_plate)
+        # Find the license plate contour
+        plate_contour = find_license_plate_contour(edged_image)
 
-        # Draw the contour and show the detected license plate
-        cv2.drawContours(image, [plate_contour], -1, (0, 255, 0), 2)
-        plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-        plt.title(f'License Plate: {plate_text}')
-        plt.show()
-    else:
-        print("License plate not detected.")
+        if plate_contour is not None:
+            # Extract the license plate from the frame
+            license_plate = extract_license_plate(frame, plate_contour)
+
+            # Perform OCR to read the license plate text
+            plate_text = perform_ocr(license_plate)
+
+            # Draw the contour and display the detected license plate text
+            cv2.drawContours(frame, [plate_contour], -1, (0, 255, 0), 2)
+            cv2.putText(frame, f'License Plate: {plate_text}', (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+
+            # Display the extracted license plate
+            cv2.imshow('License Plate', license_plate)
+
+        # Display the preprocessed edged image
+        cv2.imshow('Edged Image', edged_image)
+
+        # Display the frame
+        cv2.imshow('Live License Plate Recognition', frame)
+
+        # Break the loop on 'q' key press
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    # Release the video capture object and close all OpenCV windows
+    cap.release()
+    cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
